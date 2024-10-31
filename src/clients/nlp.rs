@@ -94,11 +94,24 @@ impl NlpClient {
         headers: HeaderMap,
     ) -> Result<GeneratedTextResult, Error> {
         println!("Starting text generation task predict for model ID: {}", model_id);
+        println!("Request details: {:?}", request);
+        println!("Headers: {:?}", headers);
+    
         let mut client = self.client.clone();
         let request = request_with_model_id(request, model_id, headers);
-        let response = client.text_generation_task_predict(request).await?.into_inner();
-        println!("Received text generation task response");
-        Ok(response)
+    
+        match client.text_generation_task_predict(request).await {
+            Ok(response) => {
+                println!("Received text generation task response");
+                Ok(response.into_inner())
+            },
+            Err(e) => {
+                eprintln!("Error during text generation task predict: {:?}", e);
+                eprintln!("Status code: {:?}", e.code());
+                eprintln!("Metadata: {:?}", e.metadata());
+                Err(e.into())
+            }
+        }
     }
 
     pub async fn server_streaming_text_generation_task_predict(
