@@ -16,7 +16,7 @@
 use async_trait::async_trait;
 use futures::{StreamExt, TryStreamExt};
 use hyper::HeaderMap;
-use tracing::debug;
+use tracing::{debug, error, info};
 
 use super::{BoxStream, Client, Error, NlpClient, TgisClient};
 use crate::{
@@ -50,17 +50,17 @@ enum GenerationClientInner {
 #[cfg_attr(test, faux::methods)]
 impl GenerationClient {
     pub fn tgis(client: TgisClient) -> Self {
-        println!("Creating GenerationClient with TGIS client");
+        info!("Creating GenerationClient with TGIS client");
         Self(Some(GenerationClientInner::Tgis(client)))
     }
 
     pub fn nlp(client: NlpClient) -> Self {
-        println!("Creating GenerationClient with NLP client");
+        info!("Creating GenerationClient with NLP client");
         Self(Some(GenerationClientInner::Nlp(client)))
     }
 
     pub fn not_configured() -> Self {
-        println!("GenerationClient not configured");
+        info!("GenerationClient not configured");
         Self(None)
     }
 
@@ -80,22 +80,22 @@ impl GenerationClient {
                     truncate_input_tokens: 0,
                 };
                 debug!(%model_id, provider = "tgis", ?request, "sending tokenize request");
-                println!("Sending tokenize request to TGIS for model ID: {}", model_id);
+                info!("Sending tokenize request to TGIS for model ID: {}", model_id);
                 let mut response = client.tokenize(request, headers).await?;
                 debug!(%model_id, provider = "tgis", ?response, "received tokenize response");
-                println!("Received tokenize response from TGIS for model ID: {}", model_id);
+                info!("Received tokenize response from TGIS for model ID: {}", model_id);
                 let response = response.responses.swap_remove(0);
                 Ok((response.token_count, response.tokens))
             }
             Some(GenerationClientInner::Nlp(client)) => {
                 let request = TokenizationTaskRequest { text };
                 debug!(%model_id, provider = "nlp", ?request, "sending tokenize request");
-                println!("Sending tokenize request to NLP for model ID: {}", model_id);
+                info!("Sending tokenize request to NLP for model ID: {}", model_id);
                 let response = client
                     .tokenization_task_predict(&model_id, request, headers)
                     .await?;
                 debug!(%model_id, provider = "nlp", ?response, "received tokenize response");
-                println!("Received tokenize response from NLP for model ID: {}", model_id);
+                info!("Received tokenize response from NLP for model ID: {}", model_id);
                 let tokens = response
                     .results
                     .into_iter()
@@ -104,7 +104,7 @@ impl GenerationClient {
                 Ok((response.token_count as u32, tokens))
             }
             None => {
-                println!("Model not found for tokenization with model ID: {}", model_id);
+                error!("Model not found for tokenization with model ID: {}", model_id);
                 Err(Error::ModelNotFound { model_id })
             }
         }
@@ -127,10 +127,10 @@ impl GenerationClient {
                     params,
                 };
                 debug!(%model_id, provider = "tgis", ?request, "sending generate request");
-                println!("Sending generate request to TGIS for model ID: {}", model_id);
+                info!("Sending generate request to TGIS for model ID: {}", model_id);
                 let response = client.generate(request, headers).await?;
                 debug!(%model_id, provider = "tgis", ?response, "received generate response");
-                println!("Received generate response from TGIS for model ID: {}", model_id);
+                info!("Received generate response from TGIS for model ID: {}", model_id);
                 Ok(response.into())
             }
             Some(GenerationClientInner::Nlp(client)) => {
@@ -166,16 +166,16 @@ impl GenerationClient {
                     }
                 };
                 debug!(%model_id, provider = "nlp", ?request, "sending generate request");
-                println!("Sending generate request to NLP for model ID: {}", model_id);
+                info!("Sending generate request to NLP for model ID: {}", model_id);
                 let response = client
                     .text_generation_task_predict(&model_id, request, headers)
                     .await?;
                 debug!(%model_id, provider = "nlp", ?response, "received generate response");
-                println!("Received generate response from NLP for model ID: {}", model_id);
+                info!("Received generate response from NLP for model ID: {}", model_id);
                 Ok(response.into())
             }
             None => {
-                println!("Model not found for generation with model ID: {}", model_id);
+                error!("Model not found for generation with model ID: {}", model_id);
                 Err(Error::ModelNotFound { model_id })
             }
         }
@@ -198,13 +198,13 @@ impl GenerationClient {
                     params,
                 };
                 debug!(%model_id, provider = "tgis", ?request, "sending generate_stream request");
-                println!("Sending generate_stream request to TGIS for model ID: {}", model_id);
+                info!("Sending generate_stream request to TGIS for model ID: {}", model_id);
                 let response_stream = client
                     .generate_stream(request, headers)
                     .await?
                     .map_ok(Into::into)
                     .boxed();
-                println!("Received generate_stream response from TGIS for model ID: {}", model_id);
+                info!("Received generate_stream response from TGIS for model ID: {}", model_id);
                 Ok(response_stream)
             }
             Some(GenerationClientInner::Nlp(client)) => {
@@ -240,17 +240,17 @@ impl GenerationClient {
                     }
                 };
                 debug!(%model_id, provider = "nlp", ?request, "sending generate_stream request");
-                println!("Sending generate_stream request to NLP for model ID: {}", model_id);
+                info!("Sending generate_stream request to NLP for model ID: {}", model_id);
                 let response_stream = client
                     .server_streaming_text_generation_task_predict(&model_id, request, headers)
                     .await?
                     .map_ok(Into::into)
                     .boxed();
-                println!("Received generate_stream response from NLP for model ID: {}", model_id);
+                info!("Received generate_stream response from NLP for model ID: {}", model_id);
                 Ok(response_stream)
             }
             None => {
-                println!("Model not found for generate_stream with model ID: {}", model_id);
+                error!("Model not found for generate_stream with model ID: {}", model_id);
                 Err(Error::ModelNotFound { model_id })
             }
         }
@@ -269,7 +269,7 @@ impl Client for GenerationClient {
             Some(GenerationClientInner::Tgis(client)) => client.health().await,
             Some(GenerationClientInner::Nlp(client)) => client.health().await,
             None => {
-                println!("Health check not implemented for unconfigured GenerationClient");
+                error!("Health check not implemented for unconfigured GenerationClient");
                 unimplemented!()
             },
         }
