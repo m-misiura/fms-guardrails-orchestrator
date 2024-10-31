@@ -1,0 +1,33 @@
+// Ref. https://github.com/caikit/caikit/blob/main/caikit/interfaces/nlp/tasks.py
+/*------------------------------------------------------------------------------
+ * AUTO GENERATED
+ *----------------------------------------------------------------------------*/
+
+syntax = "proto3";
+package caikit.runtime.Chunkers;
+import "caikit_data_model_nlp.proto";
+import "health_check.proto";
+
+
+/*-- MESSAGES ----------------------------------------------------------------*/
+
+message BidiStreamingChunkerTokenizationTaskRequest {
+
+  /*-- fields --*/
+  string text_stream = 1;
+  int64 input_index_stream = 2;
+}
+
+message ChunkerTokenizationTaskRequest {
+
+  /*-- fields --*/
+  string text = 1;
+}
+
+
+/*-- SERVICES ----------------------------------------------------------------*/
+
+service ChunkersService {
+  rpc BidiStreamingChunkerTokenizationTaskPredict(stream caikit.runtime.Chunkers.BidiStreamingChunkerTokenizationTaskRequest) returns (stream caikit_data_model.nlp.ChunkerTokenizationStreamResult);
+  rpc ChunkerTokenizationTaskPredict(caikit.runtime.Chunkers.ChunkerTokenizationTaskRequest) returns (caikit_data_model.nlp.TokenizationResults);
+}
