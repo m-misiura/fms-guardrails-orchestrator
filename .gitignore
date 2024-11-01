@@ -18,3 +18,7 @@ target/
 
 # Generated code by prost-build
 src/pb
+
+# Editor-specific files
+# VS Code
+.vscode/
