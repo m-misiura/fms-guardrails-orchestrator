@@ -24,7 +24,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use axum::http::header::HeaderMap;
 use tokio::{sync::RwLock, time::Instant};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use crate::{
@@ -112,9 +112,11 @@ impl Orchestrator {
             debug!("refreshing health cache");
             let now = Instant::now();
             let mut health = HealthCheckCache::with_capacity(self.ctx.clients.len());
-            // TODO: perform health checks concurrently?
+            // Perform health checks on all clients
             for (key, client) in self.ctx.clients.iter() {
+                debug!("Checking health for client: {}", key);
                 let result = client.health().await;
+                debug!("Health check result for client {}: {:?}", key, result);
                 health.insert(key.into(), result);
             }
             let mut client_health = self.client_health.write().await;
@@ -174,11 +176,13 @@ async fn create_clients(config: &OrchestratorConfig) -> ClientMap {
                 let tgis_client = TgisClient::new(&generation.service).await;
                 let generation_client = GenerationClient::tgis(tgis_client);
                 clients.insert("generation".to_string(), generation_client);
+                info!("Created TgisClient for generation with config: {:?}", generation.service);
             }
             GenerationProvider::Nlp => {
                 let nlp_client = NlpClient::new(&generation.service).await;
                 let generation_client = GenerationClient::nlp(nlp_client);
                 clients.insert("generation".to_string(), generation_client);
+                info!("Created NlpClient for generation with config: {:?}", generation.service);
             }
         }
     }
@@ -191,6 +195,7 @@ async fn create_clients(config: &OrchestratorConfig) -> ClientMap {
         )
         .await;
         clients.insert("chat_generation".to_string(), openai_client);
+        info!("Created OpenAiClient for chat generation with config: {:?}", chat_generation.service);
     }
 
     // Create chunker clients
@@ -198,6 +203,7 @@ async fn create_clients(config: &OrchestratorConfig) -> ClientMap {
         for (chunker_id, chunker) in chunkers {
             let chunker_client = ChunkerClient::new(&chunker.service).await;
             clients.insert(chunker_id.to_string(), chunker_client);
+            info!("Created ChunkerClient for chunker_id: {} with config: {:?}", chunker_id, chunker.service);
         }
     }
 
@@ -213,6 +219,7 @@ async fn create_clients(config: &OrchestratorConfig) -> ClientMap {
                     )
                     .await,
                 );
+                info!("Created TextContentsDetectorClient for detector_id: {} with config: {:?}", detector_id, detector.service);
             }
             DetectorType::TextGeneration => {
                 clients.insert(
@@ -223,6 +230,7 @@ async fn create_clients(config: &OrchestratorConfig) -> ClientMap {
                     )
                     .await,
                 );
+                info!("Created TextGenerationDetectorClient for detector_id: {} with config: {:?}", detector_id, detector.service);
             }
             DetectorType::TextChat => {
                 clients.insert(
@@ -233,6 +241,7 @@ async fn create_clients(config: &OrchestratorConfig) -> ClientMap {
                     )
                     .await,
                 );
+                info!("Created TextChatDetectorClient for detector_id: {} with config: {:?}", detector_id, detector.service);
             }
             DetectorType::TextContextDoc => {
                 clients.insert(
@@ -243,6 +252,7 @@ async fn create_clients(config: &OrchestratorConfig) -> ClientMap {
                     )
                     .await,
                 );
+                info!("Created TextContextDocDetectorClient for detector_id: {} with config: {:?}", detector_id, detector.service);
             }
         }
     }
