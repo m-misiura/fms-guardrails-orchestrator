@@ -18,9 +18,10 @@
 use std::fmt::Debug;
 
 use axum::http::HeaderMap;
-use http::header::CONTENT_TYPE;
+use http::header::{AUTHORIZATION, CONTENT_TYPE};
 use hyper::StatusCode;
 use serde::Deserialize;
+use tracing::warn;
 use url::Url;
 
 use super::{
@@ -85,6 +86,23 @@ impl<C: DetectorClient + HttpClientExt> DetectorClientExt for C {
         mut headers: HeaderMap,
         request: impl RequestBody,
     ) -> Result<U, Error> {
+        if !headers.contains_key(AUTHORIZATION) {
+            const SA_TOKEN_PATH: &str = "/var/run/secrets/kubernetes.io/serviceaccount/token";
+            match std::fs::read_to_string(SA_TOKEN_PATH) {
+                Ok(token) => {
+                    let bearer_value = format!("Bearer {}", token.trim());
+                    if let Ok(header_value) = bearer_value.parse() {
+                        headers.insert(AUTHORIZATION, header_value);
+                    } else {
+                        warn!("Failed to parse service account token as header value");
+                    }
+                }
+                Err(e) => {
+                    warn!("Failed to read service account token from {}: {}", SA_TOKEN_PATH, e);
+                }
+            }
+        }
+
         headers.append(DETECTOR_ID_HEADER_NAME, model_id.parse().unwrap());
         headers.append(CONTENT_TYPE, JSON_CONTENT_TYPE);
         // Header used by a router component, if available

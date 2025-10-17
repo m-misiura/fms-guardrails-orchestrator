@@ -32,7 +32,7 @@ use axum::{
 };
 use axum_extra::{extract::WithRejection, json_lines::JsonLines};
 use futures::{
-    Stream, StreamExt,
+    StreamExt,
     stream::{self, BoxStream},
 };
 use tokio::sync::mpsc;
@@ -153,24 +153,23 @@ async fn stream_classification_with_gen(
     State(state): State<Arc<ServerState>>,
     headers: HeaderMap,
     WithRejection(Json(request), _): WithRejection<Json<models::GuardrailsHttpRequest>, Error>,
-) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+) -> Response {
     let trace_id = current_trace_id();
     if let Err(error) = request.validate() {
-        // Request validation failed, return stream with single error SSE event
         let error: Error = error.into();
-        return Sse::new(
-            stream::iter([Ok(Event::default()
-                .event("error")
-                .json_data(error.to_json())
-                .unwrap())])
-            .boxed(),
-        );
+        let event_stream: BoxStream<Result<Event, Infallible>> = stream::iter([Ok(Event::default()
+            .event("error")
+            .json_data(error.to_json())
+            .unwrap())])
+            .boxed();
+        return Sse::new(event_stream).into_response();
     }
+
     let headers = filter_headers(&state.orchestrator.config().passthrough_headers, headers);
     let task = StreamingClassificationWithGenTask::new(trace_id, request, headers);
     let response_stream = state.orchestrator.handle(task).await.unwrap();
     // Convert response stream to a stream of SSE events
-    let event_stream = response_stream
+    let event_stream: BoxStream<Result<Event, Infallible>> = response_stream
         .map(|message| match message {
             Ok(response) => Ok(Event::default()
                 //.event("message") NOTE: per spec, should not be included for data-only message events
@@ -185,7 +184,7 @@ async fn stream_classification_with_gen(
             }
         })
         .boxed();
-    Sse::new(event_stream).keep_alive(KeepAlive::default())
+    Sse::new(event_stream).keep_alive(KeepAlive::default()).into_response()
 }
 
 async fn stream_content_detection(

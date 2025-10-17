@@ -29,7 +29,7 @@ use axum::http::{Extensions, HeaderMap};
 use futures::Stream;
 use ginepro::LoadBalancedChannel;
 use hyper_timeout::TimeoutConnector;
-use hyper_util::rt::TokioExecutor;
+use hyper_util::rt::{TokioExecutor, TokioTimer};
 use tonic::{Request, metadata::MetadataMap};
 use tower::{ServiceBuilder, timeout::TimeoutLayer};
 use tracing::Span;
@@ -247,7 +247,7 @@ pub async fn create_http_client(
     timeout_conn.set_connect_timeout(Some(connect_timeout));
 
     let client =
-        hyper_util::client::legacy::Client::builder(TokioExecutor::new()).build(timeout_conn);
+        hyper_util::client::legacy::Client::builder(TokioExecutor::new()).timer(TokioTimer::new()).build(timeout_conn);
     let client = ServiceBuilder::new()
         .layer(http_trace_layer())
         .layer(TimeoutLayer::new(request_timeout))
