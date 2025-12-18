@@ -41,7 +41,7 @@ WORKDIR /app
 FROM rust-builder AS fms-guardrails-orchestr8-builder
 ARG CONFIG_FILE=config/config.yaml
 
-COPY build.rs *.toml Cargo.lock LICENSE /app/
+COPY build.rs *.toml LICENSE /app/
 COPY ${CONFIG_FILE} /app/config/config.yaml
 COPY protos/ /app/protos/
 COPY src/ /app/src/
@@ -72,10 +72,11 @@ RUN groupadd --system orchestr8 --gid 1001 && \
     --comment "FMS Orchestrator User" orchestr8
 
 # Image hardening
-RUN --mount=type=bind,source=scripts,target=scripts \
-    sh scripts/installRemediationTools.sh && \
-    sh scripts/remediation-script.sh && \
-    sh scripts/removeRemediationTools.sh
+COPY scripts/ /app/scripts/
+RUN chmod +x /app/scripts/*.sh && \
+    sh /app/scripts/installRemediationTools.sh && \
+    sh /app/scripts/remediation-script.sh && \
+    sh /app/scripts/removeRemediationTools.sh
 
 USER orchestr8
 
