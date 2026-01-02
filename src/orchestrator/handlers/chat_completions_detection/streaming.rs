@@ -570,7 +570,16 @@ fn output_detection_response(
     detections: Vec<Detection>,
 ) -> Result<ChatCompletionChunk, Error> {
     // Get chat completions for this choice index
-    let chat_completions = completion_state.completions.get(&choice_index).unwrap();
+    // NOTE: Using ok_or_else instead of unwrap() to handle race condition where
+    // detectors respond before the completion stream task has inserted the entry
+    let chat_completions = completion_state
+        .completions
+        .get(&choice_index)
+        .ok_or_else(|| {
+            Error::Other(format!(
+                "completion not yet available for choice index {choice_index} (race condition)"
+            ))
+        })?;
     // Get range of chat completions for this chunk
     let chat_completions = chat_completions
         .range(chunk.input_start_index..=chunk.input_end_index)
@@ -708,7 +717,33 @@ async fn process_detection_batch_stream(
         match result {
             Ok((choice_index, chunk, detections)) => {
                 let input_end_index = chunk.input_end_index;
-                match output_detection_response(&completion_state, choice_index, chunk, detections)
+                // Retry loop to handle race condition where detectors respond before
+                // the completion stream task has inserted the entry into completion_state
+                const MAX_RETRIES: u32 = 50;
+                const RETRY_DELAY_MS: u64 = 10;
+                let mut response_result = None;
+                for attempt in 0..MAX_RETRIES {
+                    match output_detection_response(&completion_state, choice_index, chunk.clone(), detections.clone())
+                    {
+                        Ok(chat_completion) => {
+                            response_result = Some(Ok(chat_completion));
+                            break;
+                        }
+                        Err(e) if attempt < MAX_RETRIES - 1 => {
+                            // Entry not yet available, wait and retry
+                            debug!(%trace_id, %choice_index, attempt, "completion entry not yet available, retrying...");
+                            tokio::time::sleep(tokio::time::Duration::from_millis(RETRY_DELAY_MS)).await;
+                            continue;
+                        }
+                        Err(e) => {
+                            // Max retries reached, propagate error
+                            warn!(%trace_id, %choice_index, "completion entry not available after {MAX_RETRIES} retries");
+                            response_result = Some(Err(e));
+                            break;
+                        }
+                    }
+                }
+                match response_result.unwrap()
                 {
                     Ok(chat_completion) => {
                         // Send chat completion to response channel
@@ -718,20 +753,24 @@ async fn process_detection_batch_stream(
                             return;
                         }
                         // If this is the final chat completion chunk with content, send chat completion chunk with finish reason
-                        let chat_completions =
-                            completion_state.completions.get(&choice_index).unwrap();
-                        if chat_completions.keys().rev().nth(1) == Some(&input_end_index)
-                            && let Some((_, chat_completion)) = chat_completions.last_key_value()
-                            && chat_completion
-                                .choices
-                                .first()
-                                .is_some_and(|choice| choice.finish_reason.is_some())
+                        // NOTE: Using if-let instead of unwrap() to handle race condition where
+                        // the completion entry may not exist yet
+                        if let Some(chat_completions) =
+                            completion_state.completions.get(&choice_index)
                         {
-                            let mut chat_completion = chat_completion.clone();
-                            // Set role
-                            chat_completion.choices[0].delta.role = Some(Role::Assistant);
-                            debug!(%trace_id, %choice_index, ?chat_completion, "sending chat completion chunk with finish reason to response channel");
-                            let _ = response_tx.send(Ok(Some(chat_completion))).await;
+                            if chat_completions.keys().rev().nth(1) == Some(&input_end_index)
+                                && let Some((_, chat_completion)) = chat_completions.last_key_value()
+                                && chat_completion
+                                    .choices
+                                    .first()
+                                    .is_some_and(|choice| choice.finish_reason.is_some())
+                            {
+                                let mut chat_completion = chat_completion.clone();
+                                // Set role
+                                chat_completion.choices[0].delta.role = Some(Role::Assistant);
+                                debug!(%trace_id, %choice_index, ?chat_completion, "sending chat completion chunk with finish reason to response channel");
+                                let _ = response_tx.send(Ok(Some(chat_completion))).await;
+                            }
                         }
                     }
                     Err(error) => {

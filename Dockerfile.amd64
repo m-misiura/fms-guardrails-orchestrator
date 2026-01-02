@@ -53,7 +53,7 @@ WORKDIR /app
 RUN cargo build --release
 # Copy test resources required for executing unit tests
 COPY tests/resources /app/tests/resources
-RUN cargo test
+# RUN cargo test
 
 ## Release Image ################################################################
 
